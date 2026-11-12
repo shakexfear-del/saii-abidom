@@ -2,16 +2,16 @@
 name: Build Android APK
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get project
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Java
@@ -20,24 +20,36 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Extract project
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Extract project files
         run: |
           mkdir -p source
           unzip -q OG-1.zip -d source
+          find source -type f -name '*.zip' -print0 | while IFS= read -r -d '' z; do
+            mkdir -p "$(dirname "$z")/nested"
+            unzip -oq "$z" -d "$(dirname "$z")/nested"
+          done
 
       - name: Build APK
         run: |
-          GRADLEW=$(find source -type f -name gradlew | head -n 1)
-          if [ -z "$GRADLEW" ]; then
-            echo "gradlew not found inside OG-1.zip"
+          APP=$(find source -path '*/app/build.gradle' -print -quit)
+          if [ -z "$APP" ]; then
+            echo "Android app folder not found"
+            find source -maxdepth 4 -type f
             exit 1
           fi
-          cd "$(dirname "$GRADLEW")"
-          chmod +x gradlew
-          ./gradlew assembleDebug
+          PROJECT=$(dirname "$(dirname "$APP")")
+          gradle -p "$PROJECT" assembleDebug
 
-      - name: Save APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Android-APK
-          path: source/**/build/outputs/apk/**/*.apk
+          path: source/**/app/build/outputs/apk/debug/*.apk
